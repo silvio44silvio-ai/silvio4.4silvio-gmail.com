@@ -1,0 +1,7 @@
+{
+  "name": "BussolVa'a",
+  "description": "A bússola definitiva para remadores de elite. Planejamento, segurança e performance em um só lugar.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
