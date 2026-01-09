@@ -7,7 +7,8 @@ interface MapComponentProps {
   waypoints: Waypoint[];
   onAddWaypoint: (lat: number, lng: number) => void;
   userLocation: { lat: number; lng: number } | null;
-  originLocation: { lat: number; lng: number } | null;
+  // originLocation made optional as it is currently unused and causing TS errors
+  originLocation?: { lat: number; lng: number } | null;
   mobLocation?: { lat: number; lng: number } | null;
   detections?: MarineDetection[];
   heading?: number;
