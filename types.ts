@@ -5,134 +5,88 @@ export interface Waypoint {
   id: string;
 }
 
-export interface RouteData {
-  distance: number; // in km
-  estimatedTime: number; // in minutes
-  waypoints: Waypoint[];
+export interface IntensityZone {
+  id: number;
+  label: string;
+  speedKmh: number;
+  spm: number;
+  color: string;
 }
 
-export interface StrokeAnalysis {
-  spm: number;          // Strokes Per Minute
-  dps: number;          // Distance Per Stroke (meters)
-  efficiency: number;   // 0-100%
-  powerPhase: number;   // seconds
-  recoveryPhase: number; // seconds
-  techniqueTips: string[];
-}
-
-export interface MarineLifeSighting {
-  type: 'shark' | 'dolphin' | 'whale';
-  name: string;
+export interface MarineDetection {
+  type: 'SHARK' | 'DOLPHIN' | 'WHALE';
+  label: string;
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
   description: string;
-  date: string;
-  severity: 'low' | 'medium' | 'high';
 }
 
-export interface LargeVessel {
-  id: string;
-  name: string;
-  type: 'Cargo' | 'Tanker' | 'Passenger' | 'Tug';
+export interface GhostData {
   lat: number;
   lng: number;
   heading: number;
-  speed: number; // in knots
-  distance: number; // in km from user
+  speed: number;
+  active: boolean;
+}
+
+export interface Telemetry {
+  speed: number;
+  distance: number;
+  spm: number;
+  dps: number;
+  heading: number;
+  calories: number;
+  totalStrokes: number;
+  gpsAccuracy?: number;
+  isEstimated?: boolean;
+  bearingToHome?: number;
+  distanceToHome?: number;
+  isNavigatingHome?: boolean;
+  isGhostActive?: boolean;
+  mobLocation?: { lat: number; lng: number } | null;
+  time?: number;
 }
 
 export interface WeatherData {
   temp: number;
+  waterTemp: number;
+  uvIndex: number;
   windSpeed: number;
   windDirection: string;
   condition: string;
   humidity: number;
   feelsLike: number;
   timestamp: string;
-  waveHeight: number; // em metros
-  currentSpeed: number; // em km/h ou nós
+  waveHeight: number;
+  wavePeriod: number;
+  currentSpeed: number;
   currentDirection: string;
-  marineLife: MarineLifeSighting[];
+  marineLife: string[];
 }
 
-export type CanoeType = 'OC1' | 'OC4' | 'OC6' | 'Dragon Boat' | 'Surfski' | 'V1' | 'V6';
-
-export interface LevelConfig {
-  id: number;
-  speed: number;      // m/s
-  effort: number;     // kcal/s increment
-  dpsBonus: number;   // bonus percentage to Distance Per Stroke
+export interface SafetyAnalysis {
+  score: number;
+  hazards: string[];
+  recommendations: string;
+  tsunamiAlert: boolean;
+  marineDetections: MarineDetection[];
+  lastUpdate?: string;
 }
 
-export interface ChatMessage {
-  id: string;
-  senderName: string;
-  senderTeam: string;
-  text: string;
-  timestamp: string;
-  type: 'text' | 'system' | 'alert' | 'ai';
-}
+export type UserRole = 'PADDLER' | 'MERCHANT' | 'PRO';
+export type TrainingMode = 'WATER' | 'DRY' | 'DRAGON_BOAT';
+export type Environment = 'SEA' | 'LAKE' | 'DAM';
+export type MapStyle = 'TACTICAL' | 'STREETS' | 'HYBRID';
 
 export interface UserProfile {
-  userName: string;
-  teamName: string;
-  photoUrl?: string;
-  spotifyPlaylistUrl?: string;
-  modality: string;
-  nextPaddles: string;
-  routeAlertEnabled: boolean;
-  bigWaveAlertEnabled: boolean;
-  marineLifeAlertEnabled: boolean;
-  canoeType: CanoeType;
-  theme: 'light' | 'dark' | 'high-contrast';
-  fontSize: number; 
-  levelConfigs: LevelConfig[];
-  savedTrainingPlans: any[];
-  bookings: any[];
-  myPartnerships: any[];
-  isPro: boolean;
-  chatMessages: ChatMessage[];
-  visibilityEnabled: boolean;
-  pinCode?: string;
-  pinEnabled: boolean;
-  isAdmin?: boolean;
-}
-
-export interface AnalysisResult {
-  safetyScore: number;
-  recommendations: string;
-  hazards: string[];
-  sources: GroundingSource[];
-  marineLife?: MarineLifeSighting[];
-}
-
-export interface SavedRoute {
-  id: string;
   name: string;
-  date: string;
-  route: RouteData;
-  analysis: AnalysisResult | null;
+  phone?: string;
+  role: UserRole;
+  sunlightMode: boolean;
+  credits?: number;
+  isAvailableForHire?: boolean;
+  tsunamiAlertEnabled: boolean;
 }
 
-export interface TrainingRecord {
-  id: string;
-  date: string;
-  duration: number; 
-  distance: number; 
-  calories: number;
-  strokes: number;
-  canoeType: CanoeType;
-  route: Waypoint[];
-  planName?: string;
-  technicalAnalysis?: StrokeAnalysis;
-}
-
-export interface GroundingSource {
-  web?: {
-    uri: string;
-    title: string;
-  };
-}
-
-// Added missing NewsItem interface
 export interface NewsItem {
   id: string;
   title: string;
@@ -142,7 +96,6 @@ export interface NewsItem {
   url: string;
 }
 
-// Added missing CompetitionEvent interface
 export interface CompetitionEvent {
   id: string;
   title: string;
@@ -152,7 +105,6 @@ export interface CompetitionEvent {
   url: string;
 }
 
-// Added missing CanoeLocation interface
 export interface CanoeLocation {
   id: string;
   name: string;
@@ -161,3 +113,47 @@ export interface CanoeLocation {
   lng: number;
   description: string;
 }
+
+export interface Professional {
+  id: string;
+  name: string;
+  role: string;
+  location: string;
+  specialty: string;
+  contact: string;
+  description: string;
+  image: string;
+  certifications: string[];
+  verified: boolean;
+  available: boolean;
+  yearsExperience: number;
+}
+
+export interface JobVacancy {
+  id: string;
+  baseName: string;
+  title: string;
+  type: 'CLT' | 'Freelance' | 'Sócio';
+  description: string;
+  location: string;
+  salaryRange?: string;
+  requirements: string[];
+}
+
+export interface Product {
+  id: string;
+  name: string;
+  price: number;
+  category: string;
+  image: string;
+  storeName: string;
+  isFeatured: boolean;
+}
+
+export interface StoreAnalytics {
+  balance: number;
+  totalClicks: number;
+  totalLeads: number;
+}
+
+export type Language = 'pt' | 'en' | 'fr' | 'es';

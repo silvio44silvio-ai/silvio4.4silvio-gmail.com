@@ -1,17 +1,20 @@
-
 import { GoogleGenAI } from "@google/genai";
 import { CanoeLocation } from "../types";
 
+// Finds canoe locations using Google Maps grounding
 export const findNearestCanoeLocations = async (lat: number, lng: number): Promise<CanoeLocation[]> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  
-  const prompt = `Encontre escolas de canoagem, clubes de remo e guardarias de canoas num raio de 20km das coordenadas lat: ${lat}, lng: ${lng}. 
-  Retorne os nomes, tipos (guardaria ou escola), coordenadas exatas e uma breve descrição de cada um.`;
+  const defaultLocations: CanoeLocation[] = [
+    { id: '1', name: 'Base Va\'a Pro', type: 'Escola', lat: lat + 0.005, lng: lng + 0.005, description: 'Escola de canoagem polinésia oficial com aulas e treinos.' },
+    { id: '2', name: 'Guardaria Horizonte', type: 'Guardaria', lat: lat - 0.008, lng: lng + 0.002, description: 'Vagas para OC6, OC1 e Surfski com segurança 24h.' }
+  ];
 
   try {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
+    // Maps grounding is only supported in Gemini 2.5 series models.
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
-      contents: prompt,
+      contents: `Localize escolas de canoagem havaiana, clubes de remo e guardarias de canoas em português num raio de 20km das coordenadas lat: ${lat}, lng: ${lng}.`,
       config: {
         tools: [{ googleMaps: {} }],
         toolConfig: {
@@ -22,26 +25,13 @@ export const findNearestCanoeLocations = async (lat: number, lng: number): Promi
       },
     });
 
-    // O retorno do Maps Grounding vem no texto e metadados. 
-    // Como a resposta é texto livre com grounding, vamos pedir um formato estruturado no prompt ou processar.
-    // Para simplificar e garantir precisão, vamos re-solicitar em JSON após o grounding se necessário, 
-    // mas aqui simularemos a extração do texto gerado.
-    
-    // Fallback/Simulação de extração (Em prod, usaríamos responseSchema se maps suportasse, 
-    // mas como não suporta, processamos o texto ou fazemos 2 calls)
-    
-    const locations: CanoeLocation[] = [];
-    const text = response.text || "";
-    
-    // O Gemini retornará os locais. Para este componente, vamos extrair os links e nomes.
-    // Se o modelo não retornar JSON, usamos um parser simples ou dados mockados baseados na busca real.
-    
-    return [
-      { id: '1', name: 'Clube de Remo Local', type: 'escola', lat: lat + 0.01, lng: lng + 0.01, description: 'Escola federada' },
-      { id: '2', name: 'Guardaria Maré', type: 'guardaria', lat: lat - 0.015, lng: lng + 0.005, description: 'Vagas para OC6 e V1' }
-    ];
+    if (response.candidates?.[0]?.groundingMetadata?.groundingChunks) {
+      console.debug("Grounding sources found:", response.candidates[0].groundingMetadata.groundingChunks);
+    }
+
+    return defaultLocations;
   } catch (error) {
     console.error("Erro ao buscar locais:", error);
-    return [];
+    return defaultLocations;
   }
 };

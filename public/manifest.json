@@ -1,0 +1,61 @@
+
+{
+  "id": "com.bussulvaa.elite.tactical",
+  "short_name": "BussulVa'a",
+  "name": "BussulVa'a Elite - Navegação Tática",
+  "description": "A bússola definitiva para o remador de elite. Navegação tática, segurança com IA e telemetria de performance.",
+  "icons": [
+    {
+      "src": "https://api.dicebear.com/7.x/initials/svg?seed=BV&backgroundColor=020617",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://api.dicebear.com/7.x/initials/svg?seed=BV&backgroundColor=020617",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "https://images.unsplash.com/photo-1544551763-46a013bb70d5?auto=format&fit=crop&q=80&w=1080&h=1920",
+      "sizes": "1080x1920",
+      "type": "image/jpeg",
+      "form_factor": "narrow",
+      "label": "Navegação Tática em Alto Mar"
+    },
+    {
+      "src": "https://images.unsplash.com/photo-1544551763-46a013bb70d5?auto=format&fit=crop&q=80&w=1920&h=1080",
+      "sizes": "1920x1080",
+      "type": "image/jpeg",
+      "form_factor": "wide",
+      "label": "Painel de Performance de Elite"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#020617",
+  "background_color": "#020617",
+  "categories": ["navigation", "sports", "utilities"],
+  "shortcuts": [
+    {
+      "name": "Iniciar Treino",
+      "short_name": "Treinar",
+      "description": "Abre o cronômetro de missão",
+      "url": "/?action=start",
+      "icons": [{ "src": "https://api.dicebear.com/7.x/initials/svg?seed=Play", "sizes": "192x192" }]
+    },
+    {
+      "name": "Radar de Segurança",
+      "short_name": "Radar",
+      "description": "Verificar riscos no mar",
+      "url": "/?action=radar",
+      "icons": [{ "src": "https://api.dicebear.com/7.x/initials/svg?seed=Radar", "sizes": "192x192" }]
+    }
+  ],
+  "lang": "pt-BR",
+  "dir": "ltr"
+}

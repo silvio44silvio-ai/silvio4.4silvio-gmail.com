@@ -1,121 +1,97 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { AnalysisResult, RouteData, StrokeAnalysis } from "../types";
+import { SafetyAnalysis } from "../types";
 
-export const analyzeRouteSafety = async (
-  route: RouteData,
-  location: { lat: number, lng: number }
-): Promise<AnalysisResult> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const CACHE_KEY = 'bussulvaa_safety_cache';
+const MIN_DISTANCE_METERS = 500;
+const MIN_TIME_MS = 15 * 60 * 1000; // 15 minutos
 
-  const prompt = `
-    Analise a segurança para um remador nas seguintes coordenadas:
-    Localização Atual: Lat ${location.lat}, Lng ${location.lng}
-    Distância da Rota: ${route.distance.toFixed(2)}km
-    Waypoints: ${JSON.stringify(route.waypoints)}
+const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+  const R = 6371e3;
+  const φ1 = lat1 * Math.PI / 180;
+  const φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+    Math.cos(φ1) * Math.cos(φ2) *
+    Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+};
 
-    Se for mar aberto, foque em: Navios grandes, Correntes e Swell.
-    Se for em LAGOAS ou REPRESAS, foque em: Áreas de pesca, bancos de areia e vegetação.
-    
-    Retorne JSON:
-    1. Score de segurança (0-100).
-    2. Recomendações específicas para o tipo de água (Mar vs Interna).
-    3. Perigos.
-    4. marineLife [].
-  `;
+export const getSafetyUpdate = async (lat: number, lng: number): Promise<SafetyAnalysis> => {
+  // Verificar Cache para economizar API
+  const cached = localStorage.getItem(CACHE_KEY);
+  if (cached) {
+    const { data, timestamp, coords } = JSON.parse(cached);
+    const dist = calculateDistance(lat, lng, coords.lat, coords.lng);
+    const timePassed = Date.now() - timestamp;
+
+    if (dist < MIN_DISTANCE_METERS && timePassed < MIN_TIME_MS) {
+      console.log("Using cached safety data (Eco Mode)");
+      return { ...data, lastUpdate: new Date(timestamp).toLocaleTimeString() };
+    }
+  }
 
   try {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: prompt,
+      contents: `Analise segurança e fauna marinha para remadores em: Lat ${lat}, Lng ${lng}. 
+      VERIFIQUE RIGOROSAMENTE: 
+      1. Presença de Tubarões, Golfinhos ou Baleias.
+      2. Riscos de correntes.
+      Responda em JSON.`,
       config: {
-        tools: [{ googleSearch: {} }],
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            safetyScore: { type: Type.NUMBER },
-            recommendations: { type: Type.STRING },
+            score: { type: Type.NUMBER },
             hazards: { type: Type.ARRAY, items: { type: Type.STRING } },
-            marineLife: {
+            recommendations: { type: Type.STRING },
+            tsunamiAlert: { type: Type.BOOLEAN },
+            marineDetections: {
               type: Type.ARRAY,
               items: {
                 type: Type.OBJECT,
                 properties: {
                   type: { type: Type.STRING },
-                  name: { type: Type.STRING },
-                  description: { type: Type.STRING },
-                  date: { type: Type.STRING },
-                  severity: { type: Type.STRING }
-                }
+                  label: { type: Type.STRING },
+                  riskLevel: { type: Type.STRING },
+                  description: { type: Type.STRING }
+                },
+                required: ["type", "label", "riskLevel", "description"]
               }
             }
-          }
+          },
+          required: ["score", "hazards", "recommendations", "tsunamiAlert", "marineDetections"]
         }
       }
     });
 
-    const text = response.text || "{}";
-    const result = JSON.parse(text);
+    const result = JSON.parse(response.text) as SafetyAnalysis;
     
-    // Extract grounding chunks as sources per Google GenAI guidelines
-    const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks?.map((chunk: any) => ({
-      web: chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : undefined
-    })).filter((s: any) => s.web) || [];
+    // Salvar no Cache
+    localStorage.setItem(CACHE_KEY, JSON.stringify({
+      data: result,
+      timestamp: Date.now(),
+      coords: { lat, lng }
+    }));
 
-    return { 
-      safetyScore: result.safetyScore ?? 50,
-      recommendations: result.recommendations ?? "Mantenha vigilância visual.",
-      hazards: result.hazards ?? ["Dados indisponíveis"],
-      marineLife: result.marineLife ?? [],
-      sources: sources
-    };
-  } catch (error) {
-    return { safetyScore: 50, recommendations: "Mantenha vigilância visual.", hazards: ["Dados indisponíveis"], sources: [], marineLife: [] };
+    return result;
+  } catch (e) {
+    console.error("AI Safety Error:", e);
+    // Se falhar (Rate limit), tenta retornar o cache mesmo que antigo
+    if (cached) return JSON.parse(cached).data;
+    return fallbackSafety();
   }
 };
 
-export const getTechnicalPaddlingAdvice = async (
-  stats: { spm: number, speed: number, dps: number, canoeType: string }
-): Promise<string[]> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `Aja como um treinador de elite de ${stats.canoeType}. 
-  Dados do atleta: Cadência ${stats.spm} SPM, Velocidade ${stats.speed} km/h, Distância por remada ${stats.dps}m.
-  Forneça 3 dicas técnicas curtas e acionáveis para melhorar a eficiência. Retorne um JSON array de strings.`;
-
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: prompt,
-      config: { 
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: { type: Type.STRING }
-        }
-      }
-    });
-    // Ensure we handle potentially undefined text property correctly
-    return JSON.parse(response.text || "[]");
-  } catch {
-    return ["Mantenha o tronco inclinado.", "Melhore a entrada do remo (Catch).", "Use o core na tração."];
-  }
-};
-
-export const processVoiceIntent = async (text: string): Promise<{ intent: string, params?: any }> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `Interprete o comando de um remador: "${text}". 
-  Intenções possíveis: START_TRAINING, STOP_TRAINING, ANALYZE_SAFETY, GET_STATS, SET_ROUTE.
-  Retorne JSON { intent: string, params: object }.`;
-  
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: prompt,
-      config: { responseMimeType: "application/json" }
-    });
-    return JSON.parse(response.text || "{}");
-  } catch {
-    return { intent: "UNKNOWN" };
-  }
-};
+const fallbackSafety = (): SafetyAnalysis => ({ 
+  score: 50, 
+  hazards: ["Sistemas de IA em alta carga. Use cautela visual."], 
+  recommendations: "Mantenha atenção visual constante e use sempre colete salva-vidas.", 
+  tsunamiAlert: false,
+  marineDetections: []
+});

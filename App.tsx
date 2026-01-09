@@ -1,226 +1,269 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import MapComponent from './components/MapComponent';
-import Sidebar from './components/Sidebar';
-import { RouteData, UserProfile, LargeVessel, TrainingRecord, WeatherData, AnalysisResult } from './types';
-import { analyzeRouteSafety } from './services/geminiService';
+import { Menu, X, Bell, Zap, Activity, Navigation, Flame, Timer, Trophy, Play, Pause, Square, Medal, Target, Waves, AlertTriangle, Anchor, Fish, Signal, SignalLow, Globe, WifiOff, Home, Navigation2, Mic, MicOff, UserMinus, Sun, Moon, LocateFixed, Search, MapPin, Loader2, Compass } from 'lucide-react';
+import { getSafetyUpdate } from './services/geminiService';
 import { fetchRealTimeWeather } from './services/weatherService';
-import { Compass, ShieldCheck, User as UserIcon, Lock, Terminal, ShieldAlert, Siren, AlertCircle } from 'lucide-react';
+import { fetchCanoeNews } from './services/newsService';
+import { findNearestCanoeLocations } from './services/locationService';
+import { searchAddress, LocationResult } from './services/navigationService';
+import { Telemetry, SafetyAnalysis, WeatherData, UserProfile, TrainingMode, Environment, MapStyle, NewsItem, CompetitionEvent, CanoeLocation, Language, IntensityZone, MarineDetection } from './types';
+import Sidebar from './components/Sidebar';
+import MapComponent from './components/MapComponent';
+import { TrainingSummary } from './components/TrainingSummary';
+import { LoginScreen } from './components/LoginScreen';
+import { translations } from './services/translations';
 
-const MOCK_VESSELS: LargeVessel[] = [
-  { id: 'v1', name: 'OCEAN GIANT', type: 'Cargo', lat: -23.56, lng: -46.64, heading: 45, speed: 18, distance: 3.2 },
-  { id: 'v2', name: 'BLUE MARLIN', type: 'Tanker', lat: -23.54, lng: -46.62, heading: 180, speed: 12, distance: 1.5 },
+type SessionStatus = 'IDLE' | 'ACTIVE' | 'PAUSED';
+
+const DEFAULT_ZONES: IntensityZone[] = [
+  { id: 1, label: 'Z1 - Recuperação', speedKmh: 8.0, spm: 52, color: 'text-emerald-400' },
+  { id: 2, label: 'Z2 - Aeróbico', speedKmh: 10.5, spm: 58, color: 'text-cyan-400' },
+  { id: 3, label: 'Z3 - Tempo', speedKmh: 12.0, spm: 64, color: 'text-blue-400' },
+  { id: 4, label: 'Z4 - Sub-Máximo', speedKmh: 14.0, spm: 72, color: 'text-yellow-400' },
+  { id: 5, label: 'Z5 - VO2 Max', speedKmh: 16.5, spm: 80, color: 'text-orange-400' },
+  { id: 6, label: 'Z6 - Anaeróbico', speedKmh: 19.0, spm: 90, color: 'text-red-400' },
 ];
 
-const ADMIN_KEY = "BUSSOL-2025"; 
-
 const App: React.FC = () => {
-  const [accessState, setAccessState] = useState<'landing' | 'admin-check' | 'user-pin' | 'unlocked'>('landing');
-  const [adminKeyInput, setAdminKeyInput] = useState("");
-  const [pinInput, setPinInput] = useState("");
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [route, setRoute] = useState<RouteData>({ distance: 0, estimatedTime: 0, waypoints: [] });
-  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [vessels, setVessels] = useState<LargeVessel[]>(MOCK_VESSELS);
-  const [weather, setWeather] = useState<WeatherData | null>(null);
-  const [sosActive, setSosActive] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [status, setStatus] = useState<SessionStatus>('IDLE');
+  const [showSummary, setShowSummary] = useState(false);
+  const [trainingMode, setTrainingMode] = useState<TrainingMode>('WATER');
+  const [environment, setEnvironment] = useState<Environment>('SEA');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [mapStyle, setMapStyle] = useState<MapStyle>('TACTICAL');
+  const [language, setLanguage] = useState<Language>('pt');
+  const [intensityZones, setIntensityZones] = useState<IntensityZone[]>(DEFAULT_ZONES);
+  const [activeZoneId, setActiveZoneId] = useState<number>(2);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [originLocation, setOriginLocation] = useState<{lat: number, lng: number} | null>(null);
+  const [followMode, setFollowMode] = useState(true);
+  const [safetyData, setSafetyData] = useState<SafetyAnalysis | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [targetLocation, setTargetLocation] = useState<LocationResult | null>(null);
   
-  // Timer State
-  const [isTimerRunning, setIsTimerRunning] = useState(false);
-  const [elapsedTime, setElapsedTime] = useState(0);
-  const timerRef = useRef<any>(null);
-
-  const [userProfile, setUserProfile] = useState<UserProfile>(() => {
-    const saved = localStorage.getItem('bussol_profile');
-    if (saved) return JSON.parse(saved);
-    return {
-      userName: 'Comandante',
-      teamName: 'Va\'a Pro Team',
-      photoUrl: '',
-      modality: 'Canoagem VAA',
-      nextPaddles: '',
-      routeAlertEnabled: true,
-      bigWaveAlertEnabled: true,
-      marineLifeAlertEnabled: true,
-      canoeType: 'Canoa Havaiana',
-      theme: 'light',
-      fontSize: 1,
-      levelConfigs: [],
-      savedTrainingPlans: [],
-      bookings: [],
-      myPartnerships: [],
-      isPro: true,
-      chatMessages: [],
-      visibilityEnabled: false,
-      pinEnabled: false,
-      pinCode: "",
-      isAdmin: false
-    };
+  const [userProfile, setUserProfile] = useState<UserProfile>({
+    name: 'Paddler',
+    role: 'PADDLER',
+    sunlightMode: false,
+    tsunamiAlertEnabled: true
+  });
+  
+  const [userLocation, setUserLocation] = useState<{lat: number; lng: number} | null>({ lat: -23.5505, lng: -46.6333 });
+  
+  const [telemetry, setTelemetry] = useState<Telemetry>({ 
+    speed: 0, distance: 0, spm: 0, dps: 0, heading: 45, calories: 0, totalStrokes: 0, 
+    gpsAccuracy: 0, isEstimated: false, isNavigatingHome: false, isGhostActive: false, mobLocation: null 
   });
 
-  useEffect(() => {
-    localStorage.setItem('bussol_profile', JSON.stringify(userProfile));
-  }, [userProfile]);
+  const physicsInterval = useRef<number | null>(null);
+  const lastStrokeTime = useRef<number>(0);
+  const sessionStartTime = useRef<number>(0);
+  const accumulatedTime = useRef<number>(0);
 
   useEffect(() => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(async (pos) => {
-        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        setUserLocation(loc);
-        try {
-            const w = await fetchRealTimeWeather(loc.lat, loc.lng);
-            setWeather(w);
-        } catch (e) { console.error("Weather error", e); }
-      });
+    const savedPhone = localStorage.getItem('bussulvaa_auth_phone');
+    if (savedPhone) {
+      setUserProfile(prev => ({ ...prev, phone: savedPhone }));
+      setIsAuthenticated(true);
     }
-
-    const aisInterval = setInterval(() => {
-       setVessels(prev => prev.map(v => ({
-         ...v,
-         lat: v.lat + (Math.random() - 0.5) * 0.001,
-         lng: v.lng + (Math.random() - 0.5) * 0.001,
-         distance: Math.max(0.1, v.distance + (Math.random() - 0.6) * 0.1)
-       })));
-    }, 5000);
-
-    return () => {
-        clearInterval(aisInterval);
-        if (timerRef.current) clearInterval(timerRef.current);
-    };
+    if (userLocation) {
+      getSafetyUpdate(userLocation.lat, userLocation.lng).then(setSafetyData);
+    }
   }, []);
 
-  const toggleTimer = (forceState?: boolean) => {
-    const targetState = forceState !== undefined ? forceState : !isTimerRunning;
-    if (targetState === isTimerRunning) return;
-    if (!targetState) {
-      if (timerRef.current) clearInterval(timerRef.current);
-      setIsTimerRunning(false);
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchQuery.trim()) return;
+    setIsSearching(true);
+    setFollowMode(false);
+    const result = await searchAddress(searchQuery);
+    if (result) {
+      setTargetLocation(result);
     } else {
-      setIsTimerRunning(true);
-      timerRef.current = setInterval(() => {
-        setElapsedTime(prev => prev + 1);
-      }, 1000);
+      alert("Destino não encontrado no radar.");
     }
+    setIsSearching(false);
   };
 
-  const handleSOS = () => {
-    setSosActive(true);
-    setTimeout(() => {
-       if (confirm("SOS ENVIADO! Deseja cancelar o alerta de emergência?")) {
-          setSosActive(false);
-       }
-    }, 500);
+  const startSession = () => {
+    if (status === 'IDLE') {
+      sessionStartTime.current = Date.now();
+      accumulatedTime.current = 0;
+      lastStrokeTime.current = Date.now();
+      setOriginLocation(userLocation);
+      setTelemetry(prev => ({ ...prev, speed: 0, distance: 0, calories: 0, totalStrokes: 0 }));
+    }
+    setStatus('ACTIVE');
+    setFollowMode(true);
+    if (window.innerWidth < 768) setIsSidebarOpen(false);
   };
 
-  if (accessState === 'landing') {
-    return (
-      <div className="h-screen w-full flex items-center justify-center bg-slate-950 text-white relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(37,99,235,0.15),transparent)]" />
-        <div className="max-w-md w-full text-center space-y-12 z-10 p-8">
-            <div className="space-y-4">
-                <div className="w-24 h-24 bg-blue-600 rounded-[2.5rem] mx-auto flex items-center justify-center shadow-2xl shadow-blue-500/40 rotate-12 transition-transform hover:rotate-0 cursor-pointer">
-                   <Compass size={48} className="text-white animate-[spin_20s_linear_infinite]" />
-                </div>
-                <h1 className="text-5xl font-black italic tracking-tighter">BUSSOLVA'A</h1>
-                <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">Navegação Tática para Remadores</p>
-            </div>
-            
-            <div className="grid grid-cols-1 gap-4">
-                <button 
-                    onClick={() => { if (userProfile.pinEnabled) setAccessState('user-pin'); else setAccessState('unlocked'); }}
-                    className="group flex items-center justify-between p-6 bg-white/5 border border-white/10 rounded-[2.5rem] hover:bg-white/10 transition-all hover:scale-[1.02] active:scale-95 text-left shadow-xl"
-                >
-                    <div>
-                        <p className="text-xs font-black uppercase text-blue-400 tracking-widest mb-1">Comandante</p>
-                        <p className="text-lg font-black italic">Acessar App</p>
-                    </div>
-                    <UserIcon className="text-white/20 group-hover:text-blue-500 transition-colors" size={32} />
-                </button>
-            </div>
-            <p className="text-[9px] text-slate-600 font-bold uppercase tracking-widest">v2.6.0-ALFA • Tactical Ready</p>
-        </div>
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (status === 'ACTIVE') {
+      physicsInterval.current = window.setInterval(() => {
+        const now = Date.now();
+        const activeZone = intensityZones.find(z => z.id === activeZoneId) || intensityZones[1];
+        
+        setTelemetry(prev => {
+          let newSpeed = prev.speed;
+          const strokeInterval = (60 / activeZone.spm) * 1000;
+          if (now - lastStrokeTime.current > strokeInterval) {
+            lastStrokeTime.current = now;
+            newSpeed += (activeZone.speedKmh / 10);
+          }
+          newSpeed *= 0.985;
 
-  if (accessState === 'user-pin') {
-    return (
-      <div className="h-screen w-full flex items-center justify-center bg-slate-50 p-8">
-         <div className="max-w-sm w-full text-center space-y-8 animate-in fade-in duration-300">
-            <div className="w-20 h-20 bg-blue-600 rounded-[2.5rem] mx-auto flex items-center justify-center shadow-2xl mb-4">
-                <Lock size={32} className="text-white" />
-            </div>
-            <h2 className="text-2xl font-black italic">PIN Requerido</h2>
-            <input 
-              type="password" maxLength={4} placeholder="••••" 
-              className="w-full p-6 rounded-[2rem] bg-slate-200 border-none text-center font-mono text-3xl outline-none focus:ring-4 ring-blue-500/20"
-              autoFocus value={pinInput} onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ""))}
-            />
-            <button onClick={() => { if (pinInput === userProfile.pinCode) setAccessState('unlocked'); else alert("PIN Incorreto."); }} className="w-full py-5 bg-blue-600 text-white rounded-[2rem] font-black uppercase text-xs tracking-widest shadow-xl">Desbloquear</button>
-         </div>
-      </div>
-    );
-  }
+          setUserLocation(loc => {
+            if (!loc) return null;
+            const userRad = (prev.heading * Math.PI) / 180;
+            return {
+              lat: loc.lat + (Math.cos(userRad) * 0.0000004 * newSpeed),
+              lng: loc.lng + (Math.sin(userRad) * 0.0000004 * newSpeed)
+            };
+          });
+
+          return {
+            ...prev,
+            speed: newSpeed,
+            distance: prev.distance + (newSpeed / 3600) * 0.05,
+            calories: prev.calories + (0.15 + newSpeed * 0.02) * 0.05,
+            spm: activeZone.spm,
+            dps: (newSpeed / 3.6) / (activeZone.spm / 60) || prev.dps,
+            totalStrokes: prev.totalStrokes + 1
+          };
+        });
+      }, 50);
+    } else if (physicsInterval.current) {
+      clearInterval(physicsInterval.current);
+    }
+    return () => { if (physicsInterval.current) clearInterval(physicsInterval.current); };
+  }, [status, activeZoneId]);
+
+  if (!isAuthenticated) return <LoginScreen onLoginSuccess={(phone) => { localStorage.setItem('bussulvaa_auth_phone', phone); setIsAuthenticated(true); }} />;
 
   return (
-    <div className="flex h-screen w-full flex-col md:flex-row overflow-hidden bg-slate-50">
-      <main className="flex-1 relative h-[45vh] md:h-full">
-        <MapComponent 
-          waypoints={route.waypoints} 
-          onAddWaypoint={(lat, lng) => {
-             setRoute(prev => ({
-               ...prev,
-               waypoints: [...prev.waypoints, { lat, lng, id: Math.random().toString() }],
-               distance: prev.distance + (prev.waypoints.length > 0 ? 0.85 : 0)
-             }));
-          }}
-          userLocation={userLocation}
-          userPhoto={userProfile.photoUrl}
-          vessels={vessels}
+    <div className={`relative h-screen w-screen flex flex-col md:flex-row ${userProfile.sunlightMode ? 'sunlight-mode-active' : 'bg-black'}`}>
+      
+      {/* HUD DE BUSCA E CONTROLES */}
+      <div className="fixed top-6 left-0 right-0 z-[100] flex flex-col gap-4 px-6 pointer-events-none">
+         <div className="flex justify-between items-start w-full">
+            <div className="flex gap-2 pointer-events-auto">
+              <button 
+                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-2xl transition-all ${userProfile.sunlightMode ? 'bg-slate-100 border-slate-200 text-slate-900' : 'bg-slate-900 border-white/10 text-white'}`}
+              >
+                {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
+              </button>
+            </div>
+
+            <div className="flex-1 max-w-lg mx-4 pointer-events-auto">
+               <form onSubmit={handleSearch} className="relative group">
+                  <div className={`absolute left-4 top-1/2 -translate-y-1/2 transition-colors ${userProfile.sunlightMode ? 'text-slate-400' : 'text-cyan-400'}`}>
+                    {isSearching ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
+                  </div>
+                  <input 
+                    type="text"
+                    placeholder="BUSCAR DESTINO (EX: REPRESA, MAR, ENDEREÇO...)"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className={`w-full py-4 pl-12 pr-6 rounded-2xl text-[10px] font-black tracking-widest uppercase border shadow-2xl transition-all focus:outline-none focus:ring-4 ${userProfile.sunlightMode ? 'bg-white border-slate-200 text-black focus:ring-slate-100' : 'bg-slate-900/80 backdrop-blur-md border-white/10 text-white focus:border-cyan-500 focus:ring-cyan-500/10'}`}
+                  />
+                  {targetLocation && (
+                    <button type="button" onClick={() => { setTargetLocation(null); setSearchQuery(''); }} className="absolute right-4 top-1/2 -translate-y-1/2 text-red-500 hover:scale-110 transition-transform">
+                      <X size={16} />
+                    </button>
+                  )}
+               </form>
+            </div>
+
+            <div className="flex gap-2 pointer-events-auto">
+              <button 
+                onClick={() => setUserProfile({...userProfile, sunlightMode: !userProfile.sunlightMode})}
+                className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-2xl transition-all ${userProfile.sunlightMode ? 'bg-yellow-500 text-white' : 'bg-slate-900 border-white/10 text-white'}`}
+              >
+                {userProfile.sunlightMode ? <Sun size={20} /> : <Moon size={20} />}
+              </button>
+              <button 
+                onClick={() => { setFollowMode(true); setTargetLocation(null); }}
+                className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-2xl transition-all ${followMode ? 'bg-cyan-500 text-white' : 'bg-slate-900 border-white/10 text-white'}`}
+              >
+                <LocateFixed size={20} />
+              </button>
+            </div>
+         </div>
+      </div>
+
+      {showSummary && (
+        <TrainingSummary 
+          telemetry={{...telemetry, time: accumulatedTime.current}}
+          mode={trainingMode} env={environment} target={1000} eliteTime={240}
+          onClose={() => setShowSummary(false)} onShareChat={() => {}}
         />
-        
-        {/* BOTÃO DE SOS (PÂNICO) */}
-        <button 
-           onClick={handleSOS}
-           className={`absolute bottom-10 left-6 z-40 w-16 h-16 rounded-full flex items-center justify-center shadow-2xl transition-all active:scale-90 border-4 ${sosActive ? 'bg-red-600 border-red-200 animate-pulse' : 'bg-red-500 border-white/20'}`}
-        >
-           <Siren size={32} className="text-white" />
-           <div className="absolute -top-1 -right-1 bg-white text-red-600 rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-black">SOS</div>
-        </button>
+      )}
 
-        {/* ALERTA DE NAVIO PRÓXIMO */}
-        {vessels.some(v => v.distance < 1.5) && (
-           <div className="absolute top-20 left-1/2 -translate-x-1/2 z-40 bg-red-600 text-white px-6 py-3 rounded-full flex items-center gap-3 shadow-2xl animate-bounce border-2 border-white/50">
-              <AlertCircle size={20} />
-              <span className="text-[10px] font-black uppercase tracking-widest">Colisão Iminente! Navio a menos de 1.5km</span>
-           </div>
-        )}
-
-        {isTimerRunning && (
-           <div className="absolute top-6 right-6 z-30 bg-black/80 backdrop-blur-md text-white px-8 py-4 rounded-[2rem] font-mono text-3xl border border-white/10 shadow-2xl flex items-center gap-6 animate-in slide-in-from-top-4">
-              <div className="w-4 h-4 bg-red-500 rounded-full animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.5)]" />
-              {new Date(elapsedTime * 1000).toISOString().substr(11, 8)}
-           </div>
-        )}
-      </main>
-      <aside className="w-full md:w-[450px] h-[55vh] md:h-full z-20 shadow-[-10px_0_40px_rgba(0,0,0,0.05)] bg-white">
+      {/* SIDEBAR */}
+      <div className={`fixed inset-y-0 left-0 z-[200] w-full md:relative md:w-[420px] transform transition-transform duration-500 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:hidden'}`}>
         <Sidebar 
-          route={route} analysis={analysis} 
-          onClearRoute={() => { setRoute({ distance: 0, estimatedTime: 0, waypoints: [] }); setAnalysis(null); setElapsedTime(0); }}
-          onAnalyze={async () => {
-             if (userLocation && route.waypoints.length > 0) {
-               setIsAnalyzing(true);
-               const r = await analyzeRouteSafety(route, userLocation);
-               setAnalysis(r);
-               setIsAnalyzing(false);
-             } else { alert("Adicione pontos no mapa para analisar a rota."); }
-          }}
-          isLoading={isAnalyzing} userLocation={userLocation} weather={weather} userProfile={userProfile}
-          onUpdateProfile={(u) => setUserProfile(p => ({ ...p, ...u }))} onToggleTimer={toggleTimer} isTimerRunning={isTimerRunning}
-          vessels={vessels} trainingHistory={[]} previewRouteId={null} onPreviewTraining={() => {}}
+          userProfile={userProfile} setUserProfile={setUserProfile} 
+          sessionStatus={status} isTimerRunning={status === 'ACTIVE'} 
+          onToggleTimer={status === 'ACTIVE' ? () => setStatus('PAUSED') : startSession}
+          onStopTimer={() => { setStatus('IDLE'); setShowSummary(true); }}
+          telemetry={telemetry} weather={null} analysis={safetyData} userLocation={userLocation}
+          news={[]} locations={[]} onSOS={() => {}} isSOSActive={false}
+          trainingMode={trainingMode} setTrainingMode={setTrainingMode}
+          environment={environment} setEnvironment={setEnvironment}
+          targetDistance={1000} setTargetDistance={() => {}}
+          mapStyle={mapStyle} setMapStyle={setMapStyle} language={language} setLanguage={setLanguage}
+          intensityZones={intensityZones} setIntensityZones={setIntensityZones}
+          activeZoneId={activeZoneId} setActiveZoneId={setActiveZoneId}
+          onClose={() => setIsSidebarOpen(false)}
         />
-      </aside>
+      </div>
+
+      {/* MAP CONTAINER - GARANTINDO VISIBILIDADE */}
+      <div 
+        className="flex-1 relative h-full w-full overflow-hidden" 
+        onMouseDown={() => setFollowMode(false)} 
+        onTouchStart={() => setFollowMode(false)}
+      >
+        <MapComponent 
+          userLocation={userLocation} originLocation={originLocation}
+          mobLocation={telemetry.mobLocation} detections={safetyData?.marineDetections} heading={telemetry.heading} waypoints={[]} onAddWaypoint={() => {}}
+          sunlightMode={userProfile.sunlightMode} mapStyle={mapStyle} speed={telemetry.speed}
+          isNavigatingHome={telemetry.isNavigatingHome} followMode={followMode}
+          targetLocation={targetLocation}
+        />
+
+        {/* BOTÃO RE-CENTRALIZAR ESTILO WAZE */}
+        {!followMode && (
+          <button 
+            onClick={() => setFollowMode(true)}
+            className={`absolute bottom-32 left-1/2 -translate-x-1/2 z-[40] px-8 py-4 rounded-full font-black text-[10px] tracking-widest uppercase shadow-2xl transition-all animate-in slide-in-from-bottom-4 ${userProfile.sunlightMode ? 'bg-slate-900 text-white' : 'bg-cyan-500 text-white'}`}
+          >
+            Recentralizar Barco
+          </button>
+        )}
+
+        {/* HUD DE PERFORMANCE */}
+        {(status !== 'IDLE') && (
+          <div className="absolute inset-x-0 top-32 z-[40] pointer-events-none flex flex-col items-center">
+             <div className={`px-10 py-6 rounded-[3rem] backdrop-blur-md border transition-all ${userProfile.sunlightMode ? 'bg-white/90 border-slate-200 shadow-xl' : 'bg-slate-950/80 border-white/10 shadow-2xl'} ${telemetry.speed > 16 ? 'border-yellow-400' : ''}`}>
+                <p className={`hud-font text-7xl italic leading-none font-black ${userProfile.sunlightMode ? 'text-black' : 'text-white'}`}>{telemetry.speed.toFixed(1)}</p>
+                <p className="hud-font text-cyan-400 text-center text-xs tracking-[0.6em] font-black mt-1 uppercase">KM/H</p>
+             </div>
+          </div>
+        )}
+
+        {/* COMPASSO TÁTICO */}
+        <div className="absolute bottom-10 right-10 z-[40] w-16 h-16 pointer-events-none">
+           <div className={`w-full h-full rounded-full border-2 flex items-center justify-center transition-all ${userProfile.sunlightMode ? 'bg-white border-slate-200' : 'bg-slate-900 border-white/20'}`} style={{ transform: `rotate(${-telemetry.heading}deg)` }}>
+              <Compass size={32} className="text-cyan-400" />
+              <div className="absolute top-0 text-[8px] font-black text-red-500">N</div>
+           </div>
+        </div>
+      </div>
     </div>
   );
 };

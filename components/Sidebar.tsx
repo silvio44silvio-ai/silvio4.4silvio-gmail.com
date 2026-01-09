@@ -1,394 +1,194 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState } from 'react';
+import { UserProfile, WeatherData, Telemetry, NewsItem, CanoeLocation, TrainingMode, Environment, MapStyle, Language, IntensityZone, SafetyAnalysis } from '../types';
 import { 
-  RouteData, AnalysisResult, WeatherData, UserProfile, LargeVessel, 
-  StrokeAnalysis, NewsItem, CompetitionEvent, CanoeLocation 
-} from '../types';
-import { 
-  Activity, Settings, Users, Store, Music, Disc, Mic, MicOff, Ship, 
-  ShieldAlert, Zap, Search, Compass, ChevronRight, ShoppingBag, Terminal, 
-  Play, Download, CheckCircle2, AlertTriangle, Eye, Target, Award, 
-  Newspaper, Calendar, MapPin, Filter, SortAsc, Navigation2, Anchor
+  Activity, MapPin, AlertOctagon, Flame, Timer, Target, Medal, Globe, Users, Sliders, ShieldCheck, Crown, Zap, Music, Search, X, ShoppingBag, Home, Mic, MicOff, UserMinus, Sparkles, Square, Play, Pause, Ruler, ChevronRight, Waves, Heart
 } from 'lucide-react';
-import { processVoiceIntent, getTechnicalPaddlingAdvice } from '../services/geminiService';
-import { fetchCanoeNews } from '../services/newsService';
-import { findNearestCanoeLocations } from '../services/locationService';
+import { BrandLogo } from './BrandLogo';
+import { VaaDictionary } from './VaaDictionary';
+import { ProfessionalSearch } from './ProfessionalSearch';
+import { IntensitySettings } from './IntensitySettings';
+import { ShopDisplay } from './ShopDisplay';
+import { AITechnique } from './AITechnique';
+import { Metronome } from './Metronome';
+import { translations } from '../services/translations';
 
 interface SidebarProps {
-  route: RouteData;
-  analysis: AnalysisResult | null;
-  onClearRoute: () => void;
-  onAnalyze: () => void;
-  isLoading: boolean;
+  analysis: SafetyAnalysis | null;
   userLocation: { lat: number; lng: number } | null;
   weather: WeatherData | null;
   userProfile: UserProfile;
-  onUpdateProfile: (updates: Partial<UserProfile>) => void;
-  onToggleTimer: (forceState?: boolean) => void;
+  setUserProfile: (profile: UserProfile) => void;
+  sessionStatus: 'IDLE' | 'ACTIVE' | 'PAUSED';
   isTimerRunning: boolean;
-  vessels: LargeVessel[];
-  trainingHistory: any[];
-  previewRouteId: string | null;
-  onPreviewTraining: (r: any) => void;
+  onToggleTimer: () => void;
+  onStopTimer: () => void;
+  telemetry: Telemetry;
+  news: NewsItem[];
+  locations: CanoeLocation[];
+  onSOS: () => void;
+  isSOSActive: boolean;
+  trainingMode: TrainingMode;
+  setTrainingMode: (mode: TrainingMode) => void;
+  environment: Environment;
+  setEnvironment: (env: Environment) => void;
+  targetDistance: number;
+  setTargetDistance: (dist: number) => void;
+  mapStyle: MapStyle;
+  setMapStyle: (style: MapStyle) => void;
+  language: Language;
+  setLanguage: (lang: Language) => void;
+  intensityZones: IntensityZone[];
+  setIntensityZones: (zones: IntensityZone[]) => void;
+  activeZoneId: number;
+  setActiveZoneId: (id: number) => void;
+  onReturnHome?: () => void;
+  isVoiceActive?: boolean;
+  setIsVoiceActive?: (active: boolean) => void;
+  onClose?: () => void;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ 
-  route, analysis, onClearRoute, onAnalyze, isLoading, userLocation,
-  weather, userProfile, onUpdateProfile, onToggleTimer, isTimerRunning, vessels,
+  userProfile, setUserProfile, onToggleTimer, onStopTimer, sessionStatus, isTimerRunning, telemetry, weather, userLocation, analysis,
+  news, locations, onSOS, isSOSActive, trainingMode, setTrainingMode, environment, setEnvironment,
+  targetDistance, setTargetDistance, mapStyle, setMapStyle, language, setLanguage,
+  intensityZones, setIntensityZones, activeZoneId, setActiveZoneId, onReturnHome,
+  isVoiceActive, setIsVoiceActive, onClose
 }) => {
-  const [showSettings, setShowSettings] = useState(false);
-  const [historyTab, setHistoryTab] = useState<'workouts' | 'safety' | 'explore' | 'music' | 'shop'>('workouts');
-  const [exploreSubTab, setExploreSubTab] = useState<'news' | 'events' | 'locations'>('news');
-  const [isListening, setIsListening] = useState(false);
-  const [voiceFeedback, setVoiceFeedback] = useState('');
-  const [cartCount, setCartCount] = useState(0);
-  
-  // Discovery State
-  const [news, setNews] = useState<NewsItem[]>([]);
-  const [events, setEvents] = useState<CompetitionEvent[]>([]);
-  const [locations, setLocations] = useState<CanoeLocation[]>([]);
-  const [isFetchingExplore, setIsFetchingExplore] = useState(false);
-  
-  // Filters
-  const [categoryFilter, setCategoryFilter] = useState<string>('Tudo');
-  const [locationTypeFilter, setLocationTypeFilter] = useState<string>('Tudo');
+  const [activeTab, setActiveTab] = useState<'treino' | 'radar' | 'shop' | 'team' | 'zones' | 'lab'>('treino');
+  const [isPro, setIsPro] = useState(false); 
+  const [showPlanDetails, setShowPlanDetails] = useState(false);
+  const t = translations[language];
 
-  // Technical State
-  const [showTechAnalysis, setShowTechAnalysis] = useState(false);
-  const [isAnalyzingTech, setIsAnalyzingTech] = useState(false);
-  const [techTips, setTechTips] = useState<string[]>([]);
-  const [simulatedTech, setSimulatedTech] = useState<StrokeAnalysis>({
-    spm: 58,
-    dps: 1.85,
-    efficiency: 84,
-    powerPhase: 0.6,
-    recoveryPhase: 0.4,
-    techniqueTips: []
-  });
-
-  const THEMATIC_ALBUM_URL = 'https://open.spotify.com/intl-pt/album/5op8m0JsLV1fPT1HvkUaSj?si=KbMykrbQQ2amtiWHr5GJZA';
-
-  // Fetch News and Locations
-  useEffect(() => {
-    if (historyTab === 'explore') {
-      const loadExploreData = async () => {
-        setIsFetchingExplore(true);
-        try {
-          const newsData = await fetchCanoeNews();
-          setNews(newsData.news);
-          setEvents(newsData.events);
-          
-          if (userLocation) {
-            const locData = await findNearestCanoeLocations(userLocation.lat, userLocation.lng);
-            setLocations(locData);
-          }
-        } catch (err) {
-          console.error("Explore fetch error:", err);
-        } finally {
-          setIsFetchingExplore(false);
-        }
-      };
-      loadExploreData();
-    }
-  }, [historyTab, userLocation]);
-
-  // Filtering Logic
-  const filteredNews = useMemo(() => {
-    return news.filter(n => categoryFilter === 'Tudo' || n.category.toLowerCase().includes(categoryFilter.toLowerCase()));
-  }, [news, categoryFilter]);
-
-  const filteredEvents = useMemo(() => {
-    return events.filter(e => categoryFilter === 'Tudo' || e.category.toLowerCase().includes(categoryFilter.toLowerCase()));
-  }, [events, categoryFilter]);
-
-  const filteredLocations = useMemo(() => {
-    return locations.filter(l => locationTypeFilter === 'Tudo' || l.type.toLowerCase() === locationTypeFilter.toLowerCase());
-  }, [locations, locationTypeFilter]);
-
-  const SHOP_ITEMS = [
-    { id: 1, name: 'Remo Carbono Pro OC1', price: 'R$ 1.850', tag: 'Elite', img: '🛶' },
-    { id: 2, name: 'Colete de Impacto Va\'a', price: 'R$ 420', tag: 'Segurança', img: '🦺' },
-  ];
-
-  const handleConsultTechIA = async () => {
-    setIsAnalyzingTech(true);
-    try {
-      const tips = await getTechnicalPaddlingAdvice({
-        spm: simulatedTech.spm,
-        speed: 6.4,
-        dps: simulatedTech.dps,
-        canoeType: userProfile.canoeType
-      });
-      setTechTips(tips);
-      setShowTechAnalysis(true);
-    } catch (e) { console.error(e); } finally { setIsAnalyzingTech(false); }
-  };
-
-  const handleVoiceCommand = async () => {
-    if (!('webkitSpeechRecognition' in window)) return;
-    const recognition = new (window as any).webkitSpeechRecognition();
-    recognition.lang = 'pt-BR';
-    recognition.onstart = () => { setIsListening(true); setVoiceFeedback("Escutando..."); };
-    recognition.onresult = async (event: any) => {
-      const text = event.results[0][0].transcript;
-      setVoiceFeedback(`Comando: "${text}"`);
-      try {
-        const result = await processVoiceIntent(text);
-        switch(result.intent) {
-          case 'START_TRAINING': onToggleTimer(true); break;
-          case 'STOP_TRAINING': onToggleTimer(false); break;
-          default: setVoiceFeedback("Comando não reconhecido.");
-        }
-      } catch (err) { setVoiceFeedback("Erro."); }
-      setTimeout(() => setIsListening(false), 2000);
-    };
-    recognition.start();
-  };
+  const progress = Math.min(100, (telemetry.distance * 1000 / targetDistance) * 100);
 
   return (
-    <div className={`w-full h-full flex flex-col border-r overflow-hidden ${userProfile.theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}`}>
-      {/* Header Section */}
-      <div className="p-6 border-b">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-4">
-             <button onClick={() => setShowSettings(!showSettings)} className="relative group active:scale-95 transition-transform">
-                <div className={`relative flex items-center justify-center w-14 h-14 rounded-full border shadow-2xl ring-2 transition-all ${userProfile.theme === 'dark' ? 'bg-slate-800 border-slate-700 ring-blue-900/20' : 'bg-white border-slate-100 ring-blue-50'}`}>
-                   {userProfile.photoUrl ? <img src={userProfile.photoUrl} alt="Avatar" className="w-full h-full rounded-full object-cover" /> : <Compass className="text-blue-600 animate-[spin_20s_linear_infinite]" size={28} />}
-                </div>
-             </button>
-             <div>
-               <h1 className="text-xl font-black tracking-tighter uppercase">BussolVa'a</h1>
-               <span className="text-[9px] font-bold opacity-60 uppercase tracking-widest">{userProfile.teamName}</span>
-             </div>
+    <div className={`relative w-full h-full flex flex-col border-r border-white/5 transition-all duration-500 shadow-[20px_0_50px_rgba(0,0,0,0.5)] ${userProfile.sunlightMode ? 'bg-white' : 'bg-slate-950 text-white'}`}>
+      
+      {/* HEADER UTILITÁRIO */}
+      <div className="px-6 py-3 flex items-center justify-between border-b bg-slate-900 border-white/5 shrink-0">
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => setShowPlanDetails(!showPlanDetails)} 
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-all active:scale-95 ${isPro ? 'bg-yellow-500/10 border-yellow-500/30' : 'bg-slate-800 border-white/10'}`}
+            >
+              {isPro ? <Crown size={12} className="text-yellow-500" /> : <ShieldCheck size={12} className="text-slate-500" />}
+              <span className={`text-[9px] font-black uppercase tracking-widest ${isPro ? 'text-yellow-500' : 'text-slate-400'}`}>
+                {isPro ? t.pro_plan : t.free_plan}
+              </span>
+            </button>
           </div>
-          <button onClick={() => setShowSettings(!showSettings)} className={`p-3 rounded-2xl transition-all ${showSettings ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
-            <Settings size={20} />
+          
+          <div className="flex items-center gap-2">
+            <button onClick={() => setLanguage(language === 'pt' ? 'en' : 'pt')} className="w-8 h-8 rounded-lg flex items-center justify-center bg-white/5 text-[10px] font-black text-white/40 uppercase hover:text-white transition-all">{language}</button>
+            <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-500 hover:text-white hover:bg-white/5 transition-all"><X size={18} /></button>
+          </div>
+      </div>
+
+      {/* BRAND & SOS */}
+      <div className="px-6 py-6 border-b flex items-center justify-between bg-slate-900/20 shrink-0">
+         <BrandLogo size="md" />
+         <button onClick={onSOS} className={`w-12 h-12 rounded-2xl border transition-all flex items-center justify-center shadow-lg active:scale-90 ${isSOSActive ? 'bg-red-600 border-red-500 animate-pulse text-white' : 'bg-red-950/30 border-red-500/30 text-red-500'}`}><AlertOctagon size={22} /></button>
+      </div>
+
+      {/* NAVEGAÇÃO DE ABAS */}
+      <div className="grid grid-cols-6 p-2 gap-1.5 border-b bg-slate-950 sticky top-0 z-20 shrink-0">
+        {[
+          {id: 'treino', icon: <Activity size={16}/>, label: 'MISS.'}, 
+          {id: 'radar', icon: <MapPin size={16}/>, label: 'RADAR'}, 
+          {id: 'shop', icon: <ShoppingBag size={16}/>, label: 'SHOP'}, 
+          {id: 'team', icon: <Users size={16}/>, label: 'PROS'}, 
+          {id: 'zones', icon: <Sliders size={16}/>, label: 'ZONES'}, 
+          {id: 'lab', icon: <Medal size={16}/>, label: 'LAB'}
+        ].map((tab) => (
+          <button 
+            key={tab.id} 
+            onClick={() => setActiveTab(tab.id as any)} 
+            className={`py-3 rounded-xl text-[6px] font-black uppercase flex flex-col items-center gap-1.5 transition-all active:scale-95 ${activeTab === tab.id ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-500/20' : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}
+          >
+            {tab.icon}
+            <span>{tab.label}</span>
           </button>
-        </div>
+        ))}
+      </div>
 
-        {showSettings && (
-          <div className="p-5 rounded-[2.5rem] border animate-in slide-in-from-top duration-300 mb-4 bg-slate-50 dark:bg-slate-800 shadow-xl">
-            <h4 className="text-[10px] font-black uppercase tracking-widest mb-4">Ajustes Táticos</h4>
-            <div className="grid grid-cols-2 gap-2">
-                <select 
-                  value={userProfile.canoeType} 
-                  onChange={(e) => onUpdateProfile({ canoeType: e.target.value as any })} 
-                  className="w-full px-4 py-2 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-black uppercase border border-slate-100 outline-none focus:ring-2 ring-blue-500 transition-all"
+      {/* CONTEÚDO SCROLLÁVEL */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-hide bg-slate-950/20">
+        {activeTab === 'treino' && (
+           <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              
+              {/* SELETOR DE MODO DE MISSÃO MELHORADO */}
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => setTrainingMode('WATER')}
+                  className={`flex-1 py-3 rounded-2xl border text-[8px] font-black uppercase flex flex-col items-center gap-2 transition-all shadow-lg ${trainingMode === 'WATER' ? 'bg-cyan-600 border-cyan-400 text-white shadow-cyan-500/20' : 'bg-slate-900 border-white/5 text-slate-500 hover:border-cyan-500/30'}`}
                 >
-                   <option value="OC1">Va'a OC1</option>
-                   <option value="OC4">Va'a OC4</option>
-                   <option value="OC6">Va'a OC6</option>
-                   <option value="V1">Va'a V1</option>
-                   <option value="V6">Va'a V6</option>
-                   <option value="Dragon Boat">Dragon Boat</option>
-                   <option value="Surfski">Surfski</option>
-                </select>
-                <input type="text" placeholder="Equipe" value={userProfile.teamName} onChange={(e) => onUpdateProfile({ teamName: e.target.value })} className="w-full px-4 py-2 bg-white dark:bg-slate-900 rounded-xl text-[10px] font-bold border border-slate-100" />
-            </div>
-            <button onClick={() => setShowSettings(false)} className="w-full mt-3 py-3 bg-slate-900 text-white text-[10px] font-black uppercase rounded-2xl active:scale-95 transition-transform">Confirmar</button>
-          </div>
-        )}
-      </div>
+                  <Waves size={14} /> WATER PRO
+                </button>
+                <button 
+                  onClick={() => setTrainingMode('DRAGON_BOAT')}
+                  className={`flex-1 py-3 rounded-2xl border text-[8px] font-black uppercase flex flex-col items-center gap-2 transition-all shadow-lg ${trainingMode === 'DRAGON_BOAT' ? 'bg-pink-600 border-pink-400 text-white shadow-pink-500/30' : 'bg-pink-900/10 border-pink-500/20 text-pink-500/40 hover:border-pink-500/40'}`}
+                >
+                  <Heart size={14} fill={trainingMode === 'DRAGON_BOAT' ? 'white' : 'none'} /> DRAGON PINK
+                </button>
+              </div>
 
-      {/* Main Tabs Navigation */}
-      <div className="px-6 py-2 flex gap-1 overflow-x-auto scrollbar-hide bg-slate-50/50">
-         {[
-           {id: 'workouts', label: 'Treino', icon: <Activity size={12}/>},
-           {id: 'safety', label: 'Radar', icon: <Ship size={12}/>},
-           {id: 'explore', label: 'Explorar', icon: <Search size={12}/>},
-           {id: 'shop', label: 'Loja', icon: <ShoppingBag size={12}/>},
-           {id: 'music', label: 'Play', icon: <Music size={12}/>},
-         ].map((tab: any) => (
-           <button 
-             key={tab.id} 
-             onClick={() => setHistoryTab(tab.id)}
-             className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap flex items-center gap-1.5 ${historyTab === tab.id ? 'bg-blue-600 text-white shadow-lg' : 'bg-white text-slate-400 border border-slate-100'}`}
-           >
-             {tab.icon}
-             {tab.label}
-           </button>
-         ))}
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-6 space-y-6">
-        {historyTab === 'explore' && (
-          <div className="space-y-6 animate-in slide-in-from-right duration-500">
-             {/* Explore Sub-Tabs */}
-             <div className="flex bg-slate-100 p-1 rounded-2xl">
-                <button onClick={() => setExploreSubTab('news')} className={`flex-1 py-2 text-[9px] font-black uppercase rounded-xl transition-all ${exploreSubTab === 'news' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400'}`}>Notícias</button>
-                <button onClick={() => setExploreSubTab('events')} className={`flex-1 py-2 text-[9px] font-black uppercase rounded-xl transition-all ${exploreSubTab === 'events' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400'}`}>Eventos</button>
-                <button onClick={() => setExploreSubTab('locations')} className={`flex-1 py-2 text-[9px] font-black uppercase rounded-xl transition-all ${exploreSubTab === 'locations' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400'}`}>Locais</button>
-             </div>
-
-             {/* Filters Section */}
-             {(exploreSubTab === 'news' || exploreSubTab === 'events') && (
-                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                   {['Tudo', 'Va\'a', 'SUP', 'Surfski', 'Dragon'].map(cat => (
-                     <button 
-                       key={cat} 
-                       onClick={() => setCategoryFilter(cat)}
-                       className={`px-3 py-1.5 rounded-full text-[8px] font-black uppercase border transition-all ${categoryFilter === cat ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-100 text-slate-400'}`}
-                     >
-                       {cat}
-                     </button>
-                   ))}
-                </div>
-             )}
-
-             {exploreSubTab === 'locations' && (
-                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                   {['Tudo', 'Escola', 'Guardaria'].map(type => (
-                     <button 
-                       key={type} 
-                       onClick={() => setLocationTypeFilter(type)}
-                       className={`px-3 py-1.5 rounded-full text-[8px] font-black uppercase border transition-all ${locationTypeFilter === type ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-100 text-slate-400'}`}
-                     >
-                       {type}
-                     </button>
-                   ))}
-                </div>
-             )}
-
-             {/* Content List */}
-             <div className="space-y-4">
-                {isFetchingExplore ? (
-                   <div className="flex flex-col items-center py-20 opacity-40">
-                      <Disc className="animate-spin mb-2" size={32} />
-                      <p className="text-[10px] font-black uppercase">Sincronizando Dados...</p>
-                   </div>
-                ) : (
-                  <>
-                    {exploreSubTab === 'news' && filteredNews.map(item => (
-                       <a href={item.url} target="_blank" rel="noopener noreferrer" key={item.id} className="block p-5 bg-white rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all group">
-                          <div className="flex justify-between items-start mb-2">
-                             <span className="text-[8px] font-black uppercase bg-blue-50 text-blue-500 px-2 py-0.5 rounded-sm">{item.category}</span>
-                             <span className="text-[8px] font-bold text-slate-400">{item.date}</span>
-                          </div>
-                          <h4 className="text-xs font-black leading-tight mb-2 group-hover:text-blue-600">{item.title}</h4>
-                          <p className="text-[10px] text-slate-500 font-medium line-clamp-2">{item.summary}</p>
-                       </a>
-                    ))}
-
-                    {exploreSubTab === 'events' && filteredEvents.map(event => (
-                       <div key={event.id} className="p-5 bg-indigo-50/30 rounded-3xl border border-indigo-100 flex items-center gap-4">
-                          <div className="w-12 h-12 bg-white rounded-2xl flex flex-col items-center justify-center border border-indigo-100 shadow-sm">
-                             <Calendar size={18} className="text-indigo-600" />
-                          </div>
-                          <div className="flex-1">
-                             <h4 className="text-xs font-black">{event.title}</h4>
-                             <p className="text-[9px] font-bold text-slate-500 flex items-center gap-1"><MapPin size={10}/> {event.location}</p>
-                             <p className="text-[9px] font-black text-indigo-600 mt-1">{event.date}</p>
-                          </div>
-                          <ChevronRight size={18} className="text-slate-300" />
-                       </div>
-                    ))}
-
-                    {exploreSubTab === 'locations' && filteredLocations.map(loc => (
-                       <div key={loc.id} className="p-5 bg-white rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4 hover:border-blue-200 transition-colors">
-                          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${loc.type === 'escola' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
-                             {loc.type === 'escola' ? <Award size={20} /> : <Anchor size={20} />}
-                          </div>
-                          <div className="flex-1">
-                             <div className="flex items-center gap-2">
-                                <h4 className="text-xs font-black">{loc.name}</h4>
-                                <span className={`text-[7px] font-black uppercase px-1 rounded ${loc.type === 'escola' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{loc.type}</span>
-                             </div>
-                             <p className="text-[10px] text-slate-400 font-bold">Aprox. 2.4km • {loc.description}</p>
-                          </div>
-                          <button className="p-3 bg-slate-900 text-white rounded-2xl">
-                             <Navigation2 size={16} />
-                          </button>
-                       </div>
-                    ))}
-                  </>
-                )}
-             </div>
-          </div>
-        )}
-
-        {/* Existing Workouts Tab Content... */}
-        {historyTab === 'workouts' && (
-           <div className="space-y-6 animate-in fade-in duration-300">
-              <div className="grid grid-cols-2 gap-4">
-                 <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
-                    <p className="text-[9px] font-black uppercase text-slate-400 mb-1 tracking-widest">Ritmo Atual</p>
-                    <p className="text-2xl font-black italic">6.4 <span className="text-[10px] opacity-40">km/h</span></p>
+              {/* TARGET DISTANCE */}
+              <div className={`p-5 rounded-[2.5rem] border relative overflow-hidden transition-all ${trainingMode === 'DRAGON_BOAT' ? 'bg-pink-900/20 border-pink-500/30' : 'bg-slate-900/60 border-white/5'}`}>
+                 <div className="flex justify-between items-end mb-4 relative z-10">
+                    <div>
+                       <p className={`text-[8px] font-black uppercase tracking-widest mb-1 ${trainingMode === 'DRAGON_BOAT' ? 'text-pink-400' : 'text-cyan-400'}`}>Objetivo</p>
+                       <h3 className="text-2xl font-black italic logo-font text-white">{targetDistance}<span className="text-[10px] ml-1 uppercase">Metros</span></h3>
+                    </div>
+                    <div className="text-right">
+                       <p className="text-[8px] font-black text-white/40 uppercase mb-1">Status</p>
+                       <p className={`text-lg font-black italic ${trainingMode === 'DRAGON_BOAT' ? 'text-pink-400' : 'text-cyan-400'}`}>{(telemetry.distance * 1000).toFixed(0)}m</p>
+                    </div>
                  </div>
-                 <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
-                    <p className="text-[9px] font-black uppercase text-slate-400 mb-1 tracking-widest">Total Dist.</p>
-                    <p className="text-2xl font-black italic">{route.distance.toFixed(1)} <span className="text-[10px] opacity-40">km</span></p>
+                 <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden relative z-10">
+                    <div className={`h-full transition-all duration-500 ${trainingMode === 'DRAGON_BOAT' ? 'bg-pink-500 shadow-[0_0_10px_#ec4899]' : 'bg-cyan-500 shadow-[0_0_10px_#22d3ee]'}`} style={{ width: `${progress}%` }} />
                  </div>
               </div>
 
-              <div className="p-6 bg-slate-50 dark:bg-slate-800/50 rounded-[2.5rem] border border-slate-100 shadow-inner">
-                 <h3 className="text-[10px] font-black uppercase tracking-widest flex items-center gap-2 mb-4"><Target size={16} className="text-blue-500" /> Métricas Técnicas</h3>
-                 <div className="grid grid-cols-3 gap-2">
-                    <div className="text-center">
-                       <p className="text-[8px] font-black text-slate-400 uppercase">SPM</p>
-                       <p className="text-lg font-black">{isTimerRunning ? simulatedTech.spm : '--'}</p>
-                    </div>
-                    <div className="text-center border-x border-slate-200">
-                       <p className="text-[8px] font-black text-slate-400 uppercase">DPS</p>
-                       <p className="text-lg font-black">{isTimerRunning ? simulatedTech.dps : '--'}m</p>
-                    </div>
-                    <div className="text-center">
-                       <p className="text-[8px] font-black text-slate-400 uppercase">POWER</p>
-                       <p className="text-lg font-black">{isTimerRunning ? simulatedTech.efficiency : '--'}%</p>
-                    </div>
-                 </div>
-              </div>
-
-              <button 
-                onClick={handleConsultTechIA}
-                disabled={!isTimerRunning || isAnalyzingTech}
-                className={`w-full py-4 rounded-3xl font-black uppercase text-[10px] flex items-center justify-center gap-3 shadow-xl transition-all ${!isTimerRunning ? 'bg-slate-100 text-slate-300' : 'bg-indigo-600 text-white'}`}
-              >
-                {isAnalyzingTech ? <Disc className="animate-spin" /> : <Award size={16} />}
-                Consultar Técnico Virtual (IA)
-              </button>
-
-              <button 
-                onClick={() => onToggleTimer()} 
-                className={`w-full py-8 rounded-[3rem] font-black uppercase text-sm flex flex-col items-center justify-center gap-3 shadow-2xl active:scale-95 ${isTimerRunning ? 'bg-red-500 text-white' : 'bg-slate-900 text-white'}`}
-              >
-                 <Activity size={24} className={isTimerRunning ? 'animate-bounce' : ''} />
-                 <span>{isTimerRunning ? 'Pausar Remada' : 'Iniciar Novo Treino'}</span>
-              </button>
-           </div>
-        )}
-
-        {/* Other Tabs content... (Safety, Shop, Music kept simplified for brevity) */}
-        {historyTab === 'safety' && (
-           <div className="space-y-6 animate-in slide-in-from-right duration-300">
+              {/* COCKPIT */}
               <div className="grid grid-cols-2 gap-3">
-                 <button onClick={() => alert("Perigo reportado!")} className="p-4 bg-orange-50 text-orange-600 border border-orange-100 rounded-[2rem] flex flex-col items-center gap-2"><AlertTriangle size={24} /><span className="text-[9px] font-black uppercase">Perigo</span></button>
-                 <button onClick={() => alert("Vida marinha reportada!")} className="p-4 bg-cyan-50 text-cyan-600 border border-cyan-100 rounded-[2rem] flex flex-col items-center gap-2"><Eye size={24} /><span className="text-[9px] font-black uppercase">Vida</span></button>
+                 <div className={`col-span-2 p-6 rounded-[2.5rem] bg-slate-900/40 border flex flex-col items-center justify-center transition-all ${trainingMode === 'DRAGON_BOAT' ? 'border-pink-500/30' : (telemetry.speed > 14 ? 'border-yellow-500' : 'border-white/5')}`}>
+                    <div className="flex items-center gap-2 mb-1">
+                       <Zap size={14} className={trainingMode === 'DRAGON_BOAT' ? 'text-pink-400' : (telemetry.speed > 14 ? 'text-yellow-500 animate-pulse' : 'text-cyan-400')} />
+                       <p className="text-[8px] font-black uppercase tracking-widest opacity-60">Velocidade Atual</p>
+                    </div>
+                    <p className="text-6xl font-black italic logo-font text-white leading-none">{telemetry.speed.toFixed(1)}</p>
+                    <p className={`text-[10px] font-black mt-2 tracking-[0.4em] ${trainingMode === 'DRAGON_BOAT' ? 'text-pink-400' : 'text-cyan-400'}`}>KM/H</p>
+                 </div>
+                 <div className="p-5 rounded-[2.5rem] bg-slate-900/40 border border-white/5 flex flex-col items-center">
+                    <Activity size={18} className="text-emerald-400 mb-2" />
+                    <p className="text-[8px] font-black text-white/40 uppercase mb-1">Golpes</p>
+                    <p className="text-2xl font-black italic logo-font text-white">{telemetry.totalStrokes}</p>
+                 </div>
+                 <div className="p-5 rounded-[2.5rem] bg-slate-900/40 border border-white/5 flex flex-col items-center">
+                    <Timer size={18} className="text-purple-400 mb-2" />
+                    <p className="text-[8px] font-black text-white/40 uppercase mb-1">Cadência</p>
+                    <p className="text-2xl font-black italic logo-font text-white">{telemetry.spm}<span className="text-[10px] ml-1">SPM</span></p>
+                 </div>
               </div>
-              <button onClick={onAnalyze} className={`w-full py-5 rounded-3xl font-black uppercase text-xs flex items-center justify-center gap-3 shadow-xl transition-all ${isLoading ? 'bg-slate-200' : 'bg-blue-600 text-white'}`}>
-                 <ShieldAlert size={18} /> Análise Tática
-              </button>
            </div>
         )}
+
+        {/* OUTRAS ABAS */}
+        {activeTab === 'lab' && <div className="space-y-6 animate-in fade-in duration-300"><AITechnique /><VaaDictionary /></div>}
+        {activeTab === 'zones' && <IntensitySettings zones={intensityZones} onUpdateZones={setIntensityZones} activeZoneId={activeZoneId} onSelectZone={setActiveZoneId} />}
+        {activeTab === 'team' && <ProfessionalSearch userLocation={userLocation} />}
+        {activeTab === 'shop' && <ShopDisplay role={userProfile.role} products={[]} onProductClick={() => {}} onLeadAction={() => {}} analytics={{ balance: 0, totalClicks: 0, totalLeads: 0 }} onRecharge={() => {}} />}
       </div>
 
-      {/* Voice Control Sticky Footer */}
-      <div className="p-6 sticky bottom-0 bg-inherit border-t">
-        {isListening && (
-           <div className="absolute bottom-full left-0 w-full px-6 py-4 animate-in slide-in-from-bottom-2">
-              <div className="bg-indigo-600 text-white p-4 rounded-3xl shadow-2xl flex items-center gap-4 border border-white/20">
-                 <div className="flex gap-1">
-                    {[1,2,3].map(i => <div key={i} className="w-1.5 h-4 bg-white/70 rounded-full animate-pulse" style={{animationDelay: `${i*0.2}s`}} />)}
-                 </div>
-                 <p className="text-[10px] font-black uppercase tracking-widest truncate">{voiceFeedback}</p>
-              </div>
-           </div>
-        )}
+      {/* CONTROLE DE MISSÃO */}
+      <div className="p-6 border-t border-white/5 bg-slate-950 shrink-0">
         <button 
-          onClick={handleVoiceCommand} 
-          className={`w-full py-5 rounded-[2.5rem] flex items-center justify-center gap-3 shadow-2xl transition-all active:scale-95 ${isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-indigo-600 text-white'}`}
+          onClick={onToggleTimer} 
+          className={`w-full py-6 rounded-3xl font-black uppercase text-xl flex items-center justify-center gap-4 transition-all active:scale-95 shadow-2xl border-b-4 ${trainingMode === 'DRAGON_BOAT' ? 'bg-pink-600 border-pink-800' : 'bg-cyan-500 border-cyan-700'} text-white`}
         >
-          {isListening ? <MicOff size={24} /> : <Mic size={24} />}
-          <span className="font-black uppercase text-xs tracking-[0.2em]">{isListening ? 'Escutando...' : 'Comando de Voz'}</span>
+          {sessionStatus === 'IDLE' ? <Play size={24} fill="white" /> : (isTimerRunning ? <Pause size={24} /> : <Play size={24} fill="white" />)}
+          <span>{sessionStatus === 'IDLE' ? t.start_mission : (isTimerRunning ? 'PAUSAR' : 'RETOMAR')}</span>
         </button>
       </div>
     </div>

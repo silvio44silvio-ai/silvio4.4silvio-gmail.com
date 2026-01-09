@@ -1,7 +1,9 @@
 {
-  "name": "BussolVa'a",
-  "description": "A bússola definitiva para remadores de elite. Planejamento, segurança e performance em um só lugar.",
+  "name": "BussulVa'a Elite",
+  "description": "Navegação tática e inteligência de performance para remadores de elite.",
   "requestFramePermissions": [
-    "geolocation"
+    "geolocation",
+    "microphone",
+    "camera"
   ]
 }
