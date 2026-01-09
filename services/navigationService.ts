@@ -11,38 +11,51 @@ export const searchAddress = async (query: string): Promise<LocationResult | nul
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
-    // Usamos o Gemini 2.5 Flash para converter texto em coordenadas reais via Maps Grounding
+    // Prompt otimizado para extração de dados brutos
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
-      contents: `Encontre as coordenadas geográficas (latitude e longitude) e o nome oficial para o local: "${query}". Responda apenas com os dados no formato: NOME: [nome], LAT: [valor], LNG: [valor].`,
+      contents: `LOCALIZE O ENDEREÇO OU PONTO NÁUTICO: "${query}". 
+      REGRAS DE RESPOSTA:
+      1. Forneça o nome oficial.
+      2. Forneça latitude e longitude decimais exatas.
+      3. Responda APENAS seguindo este padrão estrito:
+      DESTINO: [Nome Completo]
+      COORDENADAS: [Latitude], [Longitude]`,
       config: {
         tools: [{ googleMaps: {} }],
       },
     });
 
-    const text = response.text;
-    const latMatch = text.match(/LAT:\s*(-?\d+\.\d+)/i);
-    const lngMatch = text.match(/LNG:\s*(-?\d+\.\d+)/i);
-    const nameMatch = text.match(/NOME:\s*(.*?),/i) || text.match(/NOME:\s*(.*)/i);
+    const text = response.text || "";
+    console.debug("Resposta da Busca IA:", text);
 
-    if (latMatch && lngMatch) {
-      return {
-        lat: parseFloat(latMatch[1]),
-        lng: parseFloat(lngMatch[1]),
+    // Regex flexível para capturar coordenadas em diversos formatos decimais
+    const coordsMatch = text.match(/COORDENADAS:\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/i);
+    const nameMatch = text.match(/DESTINO:\s*(.*)/i);
+
+    if (coordsMatch && coordsMatch[1] && coordsMatch[2]) {
+      const result = {
+        lat: parseFloat(coordsMatch[1]),
+        lng: parseFloat(coordsMatch[2]),
         name: nameMatch ? nameMatch[1].trim() : query
       };
+      console.log("Localização encontrada:", result);
+      return result;
     }
     
-    // Fallback: Tentar extrair do Grounding Metadata se o texto falhar
-    const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-    if (chunks && chunks.length > 0) {
-      // Se houver chunks, poderíamos tentar extrair mais info, 
-      // mas o regex acima costuma ser suficiente com o prompt correto.
+    // Fallback: Tentativa de extração agressiva de números se o padrão falhar
+    const genericCoords = text.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
+    if (genericCoords) {
+      return {
+        lat: parseFloat(genericCoords[1]),
+        lng: parseFloat(genericCoords[2]),
+        name: query
+      };
     }
 
     return null;
   } catch (error) {
-    console.error("Erro na busca de endereço:", error);
+    console.error("Erro crítico na busca de endereço:", error);
     return null;
   }
 };

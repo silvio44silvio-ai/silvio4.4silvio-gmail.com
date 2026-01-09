@@ -7,7 +7,6 @@ interface MapComponentProps {
   waypoints: Waypoint[];
   onAddWaypoint: (lat: number, lng: number) => void;
   userLocation: { lat: number; lng: number } | null;
-  // originLocation made optional as it is currently unused and causing TS errors
   originLocation?: { lat: number; lng: number } | null;
   mobLocation?: { lat: number; lng: number } | null;
   detections?: MarineDetection[];
@@ -19,7 +18,7 @@ interface MapComponentProps {
   isEstimated?: boolean;
   isNavigatingHome?: boolean;
   followMode?: boolean;
-  targetLocation?: { lat: number; lng: number } | null;
+  targetLocation?: { lat: number; lng: number; name?: string } | null;
 }
 
 const MapComponent: React.FC<MapComponentProps> = ({ 
@@ -37,9 +36,9 @@ const MapComponent: React.FC<MapComponentProps> = ({
   const getTileUrl = (style: MapStyle, isSunlight: boolean) => {
     switch (style) {
       case 'STREETS':
-        return 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'; // Mapa de ruas padrão OSM
+        return 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
       case 'HYBRID':
-        return 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}'; // Satélite Google
+        return 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}';
       default:
         return isSunlight 
           ? 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
@@ -69,10 +68,21 @@ const MapComponent: React.FC<MapComponentProps> = ({
     mapRef.current.invalidateSize();
   }, [mapStyle, sunlightMode]);
 
+  // Efeito para centralizar no RESULTADO DA BUSCA (Target)
+  useEffect(() => {
+    if (mapRef.current && targetLocation) {
+      console.log("Movendo mapa para o alvo da busca:", targetLocation.name);
+      mapRef.current.flyTo([targetLocation.lat, targetLocation.lng], 16, {
+        animate: true,
+        duration: 1.5
+      });
+    }
+  }, [targetLocation]);
+
   useEffect(() => {
     if (!mapRef.current || !userLocation) return;
 
-    if (followMode) {
+    if (followMode && !targetLocation) {
       mapRef.current.flyTo([userLocation.lat, userLocation.lng], 16, { animate: true, duration: 0.8 });
     }
 
@@ -94,7 +104,7 @@ const MapComponent: React.FC<MapComponentProps> = ({
     } else {
       userMarkerRef.current = L.marker([userLocation.lat, userLocation.lng], { icon: boatIcon }).addTo(mapRef.current);
     }
-  }, [userLocation, heading, speed, followMode, mapStyle]);
+  }, [userLocation, heading, speed, followMode, mapStyle, targetLocation]);
 
   useEffect(() => {
     if (!mapRef.current || !targetLocation) {

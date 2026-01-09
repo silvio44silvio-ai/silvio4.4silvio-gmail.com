@@ -53,7 +53,7 @@ const App: React.FC = () => {
       const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
       const dist = R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
 
-      if (dist < 50) { // Chegou a 50 metros
+      if (dist < 50) {
         setArrived(true);
         setStatus('IDLE');
         setShowSummary(true);
@@ -78,19 +78,28 @@ const App: React.FC = () => {
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
+    
     setIsSearching(true);
+    setTempTarget(null); // Limpa o anterior
+    setTargetLocation(null); // Limpa o alvo atual
+
     const result = await searchAddress(searchQuery);
+    
     if (result) {
       setTempTarget(result);
-      setFollowMode(false);
+      setFollowMode(false); // Permite ver o destino da busca sem o GPS forçar a volta
+    } else {
+      alert("Local não encontrado. Tente um nome mais específico ou verifique sua conexão.");
     }
     setIsSearching(false);
   };
 
   const initiateMission = () => {
-    setShowBriefing(true);
-    setTargetLocation(tempTarget);
-    setTempTarget(null);
+    if (tempTarget) {
+      setShowBriefing(true);
+      setTargetLocation(tempTarget);
+      setTempTarget(null);
+    }
   };
 
   const startTraining = () => {
@@ -108,7 +117,7 @@ const App: React.FC = () => {
     <div className={`relative h-screen w-screen flex flex-col md:flex-row bg-slate-950`}>
       
       {/* MAPA E HUD */}
-      <div className="flex-1 relative h-full w-full overflow-hidden">
+      <div className="flex-1 relative h-full w-full overflow-hidden" onMouseDown={() => setFollowMode(false)}>
         <MapComponent 
           userLocation={userLocation} mapStyle={mapStyle} speed={telemetry.speed}
           followMode={followMode} targetLocation={targetLocation || tempTarget} waypoints={[]} onAddWaypoint={() => {}}
@@ -169,7 +178,7 @@ const App: React.FC = () => {
                 </div>
                 <input 
                   type="text"
-                  placeholder="DIGITE O DESTINO..."
+                  placeholder="PESQUISAR DESTINO OU RUA..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full py-5 pl-12 pr-6 rounded-[2rem] text-[10px] font-black bg-slate-900/90 backdrop-blur-xl border border-white/10 text-white focus:border-cyan-500 transition-all uppercase"
@@ -181,13 +190,18 @@ const App: React.FC = () => {
              <div className="mt-4 p-6 bg-slate-900 border border-cyan-500/50 rounded-[2.5rem] shadow-2xl pointer-events-auto animate-in slide-in-from-top-4">
                 <div className="flex items-center gap-4 mb-4">
                    <div className="w-12 h-12 bg-cyan-500/10 rounded-2xl flex items-center justify-center text-cyan-400"><MapPin /></div>
-                   <h4 className="text-xs font-black text-white uppercase">{tempTarget.name}</h4>
+                   <div className="flex-1 overflow-hidden">
+                      <p className="text-[8px] font-black text-cyan-400 uppercase tracking-widest mb-1">Local Encontrado</p>
+                      <h4 className="text-xs font-black text-white uppercase truncate">{tempTarget.name}</h4>
+                   </div>
+                   <button onClick={() => setTempTarget(null)} className="text-white/20 hover:text-white transition-colors"><X size={16}/></button>
                 </div>
                 <button 
                   onClick={initiateMission}
-                  className="w-full py-4 bg-cyan-500 rounded-2xl text-white font-black text-[10px] uppercase tracking-widest shadow-lg active:scale-95"
+                  className="w-full py-4 bg-cyan-500 rounded-2xl text-white font-black text-[10px] uppercase tracking-widest shadow-lg active:scale-95 flex items-center justify-center gap-2"
                 >
-                   DEFINIR COMO DESTINO
+                   <Navigation2 size={14} fill="white" />
+                   INICIAR NAVEGAÇÃO
                 </button>
              </div>
           )}
@@ -209,7 +223,12 @@ const App: React.FC = () => {
       {showSummary && (
         <TrainingSummary 
           telemetry={telemetry} mode="WATER" env="SEA" target={1000} eliteTime={300} arrivedAtDestination={arrived} destinationName={targetLocation?.name}
-          onClose={() => setShowSummary(false)} onShareChat={() => {}}
+          onClose={() => {
+            setShowSummary(false);
+            setTargetLocation(null);
+            setArrived(false);
+          }} 
+          onShareChat={() => {}}
         />
       )}
     </div>
